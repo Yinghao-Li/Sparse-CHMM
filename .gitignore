@@ -141,3 +141,4 @@ test.py
 !assists/plot_misc_results.ipynb
 figures/
 .DS_Store
+test.sh
