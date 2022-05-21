@@ -84,9 +84,6 @@ class SparseCHMMArguments:
     lm_batch_size: Optional[int] = field(
         default=128, metadata={'help': 'denoising model training batch size'}
     )
-    obs_normalization: Optional[bool] = field(
-        default=False, metadata={'help': 'whether normalize observations'}
-    )
     num_lm_train_epochs: Optional[int] = field(
         default=15, metadata={'help': 'number of denoising model training epochs'}
     )

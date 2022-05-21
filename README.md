@@ -1,11 +1,16 @@
 # Sparse-CHMM
 
-This repo contains the code and data of the sparse conditional hidden Markov model (Sparse-CHMM)
+This repo contains the code and data of the sparse conditional hidden Markov model (Sparse-CHMM, accepted by KDD'22, will be published soon).
+
+[![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg?color=purple)](https://www.python.org/)
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/Yinghao-Li/Sparse-CHMM)
+![GitHub stars](https://img.shields.io/github/stars/Yinghao-Li/Sparse-CHMM.svg?color=gold)
+![GitHub forks](https://img.shields.io/github/forks/Yinghao-Li/Sparse-CHMM?color=9cf)
 
 ## Dependency
 This repo is built with Python 3.9.
 Please check `./requirements.txt` for required Python packages.
-Other package versions are not tested.
+Other package versions are not tested but should be compatible.
 
 ## Datasets
 

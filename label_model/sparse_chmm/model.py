@@ -333,7 +333,6 @@ class SparseCHMM(nn.Module):
                            src_usg_ids: Optional[list[int]] = None,
                            add_wxor_lut: Optional[bool] = False,
                            apply_ratio_decay: Optional[bool] = False,
-                           normalize_observation: Optional[bool] = True,
                            sample_emiss: Optional[bool] = True,
                            track_conc_params: Optional[bool] = True):
         """
@@ -346,7 +345,6 @@ class SparseCHMM(nn.Module):
         src_usg_ids: the indices of the sources being used in inference. Leave None if use all sources
         add_wxor_lut: whether use weighted xor look-up table in the process
         apply_ratio_decay: whether apply split ratio decay to the dirichlet base neural module
-        normalize_observation: whether to normalize observations
         sample_emiss: whether sample emission matrix from the Dirichlet distribution
 
         Returns
@@ -385,21 +383,6 @@ class SparseCHMM(nn.Module):
             else:
                 if swxor is not None:
                     self._inter_results.swxor = np.r_[self._inter_results.swxor, swxor.detach().cpu().numpy()]
-
-        # if at least one source observes an entity at a position, set the probabilities of other sources to
-        # the mean value (so that they will not affect the prediction)
-        # TODO: this should not be necessary with Dirichlet emission
-        if normalize_observation:
-            lbs = obs.argmax(dim=-1)
-            # at least one source observes an entity
-            entity_idx = lbs.sum(dim=-1) > 1E-6
-            # the sources that do not observe any entity
-            no_entity_idx = lbs <= 1E-6
-            no_obs_src_idx = entity_idx.unsqueeze(-1) * no_entity_idx
-            subsitute_prob = torch.zeros_like(obs[0, 0, 0])
-            subsitute_prob[0] = 0.01
-            subsitute_prob[1:] = 0.99 / self._d_obs
-            obs[no_obs_src_idx] = subsitute_prob
 
         # only keep observations of desired sources during inference
         if src_usg_ids:
@@ -505,7 +488,6 @@ class SparseCHMM(nn.Module):
                 src_usg_ids: Optional[list[int]] = None,
                 add_wxor_lut: Optional[bool] = False,
                 apply_ratio_decay: Optional[bool] = False,
-                normalize_observation: Optional[bool] = True,
                 sample_emiss: Optional[bool] = True,
                 track_conc_params: Optional[bool] = True):
 
@@ -522,7 +504,6 @@ class SparseCHMM(nn.Module):
                                 src_usg_ids=src_usg_ids,
                                 add_wxor_lut=add_wxor_lut,
                                 apply_ratio_decay=apply_ratio_decay,
-                                normalize_observation=normalize_observation,
                                 sample_emiss=sample_emiss,
                                 track_conc_params=track_conc_params)
         self._forward_backward(seq_lengths=seq_lengths)
@@ -536,7 +517,6 @@ class SparseCHMM(nn.Module):
                 src_usg_ids: Optional[list[int]] = None,
                 add_wxor_lut: Optional[bool] = False,
                 apply_ratio_decay: Optional[bool] = False,
-                normalize_observation: Optional[bool] = True,
                 sample_emiss: Optional[bool] = False):
         """
         Find argmax_z log p(z|obs) for each (obs) in the batch.
@@ -550,7 +530,6 @@ class SparseCHMM(nn.Module):
                                 src_usg_ids=src_usg_ids,
                                 add_wxor_lut=add_wxor_lut,
                                 apply_ratio_decay=apply_ratio_decay,
-                                normalize_observation=normalize_observation,
                                 sample_emiss=sample_emiss)
         # maximum probabilities
         log_delta = torch.zeros([batch_size, max_seq_length, self._d_hidden], device=self._device)
@@ -595,10 +574,8 @@ class SparseCHMM(nn.Module):
 
         return batch_z_star, batch_marginals
 
-    def annotate(self, emb, obs, seq_lengths, label_types, normalize_observation=True):
-        batch_label_indices, batch_probs = self.viterbi(
-            emb, obs, seq_lengths, normalize_observation=normalize_observation
-        )
+    def annotate(self, emb, obs, seq_lengths, label_types):
+        batch_label_indices, batch_probs = self.viterbi(emb, obs, seq_lengths)
         batch_labels = [[label_types[lb_index] for lb_index in label_indices]
                         for label_indices in batch_label_indices]
 

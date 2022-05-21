@@ -171,7 +171,6 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
                 obs=obs_batch,
                 seq_lengths=seq_lens,
                 src_usg_ids=src_usg_ids,
-                normalize_observation=self.config.obs_normalization,
                 add_wxor_lut=add_wxor_lut,
                 track_conc_params=track_conc_params,
                 apply_ratio_decay=apply_ratio_decay
@@ -605,7 +604,6 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
                     src_usg_ids=src_usg_ids,
                     add_wxor_lut=add_wxor_lut,
                     apply_ratio_decay=apply_ratio_decay,
-                    normalize_observation=self.config.obs_normalization,
                     sample_emiss=True if self.config.enable_inference_sampling else False
                 )
                 pred_lb_batch = [[self.config.bio_label_types[lb_index] for lb_index in label_indices]
@@ -648,7 +646,6 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
                     src_usg_ids=src_usg_ids,
                     add_wxor_lut=add_wxor_lut,
                     apply_ratio_decay=apply_ratio_decay,
-                    normalize_observation=self.config.obs_normalization,
                     sample_emiss=True if self.config.enable_inference_sampling else False
                 )
                 pred_lb_batch = [[self.config.bio_label_types[lb_index] for lb_index in label_indices]
