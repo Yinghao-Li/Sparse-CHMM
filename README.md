@@ -39,7 +39,7 @@ The model parameters are defined in `./label_model/sparse_chmm/args.py`.
 
 If you would like to use the trained model on new datasets, you can refer to the entry python script `./label_model/sparse-chmm-infer.py` and the bash example `./label_model/infer-laptop.sh`.
 Please notice that you should link the argument `test_path` to the new dataset and the argument `output_dir` to the folder containing your trained model.
-The process will automatically select the model trained to the latest stage.
+The program will automatically select the model trained to the latest stage.
 
 ## 5. Citation
 
