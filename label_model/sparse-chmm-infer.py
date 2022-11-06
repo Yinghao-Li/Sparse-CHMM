@@ -27,7 +27,7 @@ from label_model.sparse_chmm.macro import *
 logger = logging.getLogger(__name__)
 
 
-def chmm_train(args: SparseCHMMArguments):
+def chmm_infer(args: SparseCHMMArguments):
     set_seed(args.seed)
     config = SparseCHMMConfig().from_args(args)
 
@@ -105,7 +105,7 @@ if __name__ == '__main__':
     logging_args(chmm_args)
 
     try:
-        chmm_train(args=chmm_args)
+        chmm_infer(args=chmm_args)
     except Exception as e:
         logger.exception(e)
         raise e
