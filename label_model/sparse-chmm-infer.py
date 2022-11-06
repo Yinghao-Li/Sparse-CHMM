@@ -31,17 +31,12 @@ def chmm_infer(args: SparseCHMMArguments):
     set_seed(args.seed)
     config = SparseCHMMConfig().from_args(args)
 
-    # create output dir if it does not exist
-    if not os.path.isdir(args.output_dir):
-        os.makedirs(os.path.abspath(args.output_dir))
-
     # load dataset
     if args.load_preprocessed_dataset:
         logger.info('Loading pre-processed datasets...')
-        file_dir = os.path.split(args.train_path)[0]
         try:
             test_dataset = CHMMDataset().load(
-                file_dir=file_dir,
+                file_dir=os.path.split(args.test_path)[0],
                 dataset_type='test',
                 config=config
             )
@@ -59,7 +54,7 @@ def chmm_infer(args: SparseCHMMArguments):
 
         if config.save_dataset:
             logger.info(f"Saving datasets")
-            output_dir = os.path.split(config.train_path)[0] if config.save_dataset_to_data_dir else args.output_dir
+            output_dir = os.path.split(config.test_path)[0] if config.save_dataset_to_data_dir else args.output_dir
 
             test_dataset.save(output_dir, 'test', config)
 
@@ -69,7 +64,7 @@ def chmm_infer(args: SparseCHMMArguments):
         test_dataset=test_dataset,
     ).initialize_model()
 
-    logger.info("Start inference")
+    logger.info("Inference started!")
     chmm_trainer.inference()
 
     logger.info("Collecting garbage")

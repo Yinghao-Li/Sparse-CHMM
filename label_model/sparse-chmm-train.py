@@ -32,8 +32,7 @@ def chmm_train(args: SparseCHMMArguments):
     config = SparseCHMMConfig().from_args(args)
 
     # create output dir if it does not exist
-    if not os.path.isdir(args.output_dir):
-        os.makedirs(os.path.abspath(args.output_dir))
+    os.makedirs(args.output_dir, exist_ok=True)
 
     # load dataset
     training_dataset = valid_dataset = test_dataset = None

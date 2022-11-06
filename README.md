@@ -37,27 +37,28 @@ The model parameters are defined in `./label_model/sparse_chmm/args.py`.
 
 ## 4. Model Inference
 
-If you would like to use the trained the model on new datasets, you can refer to the entry python script `./label_model/sparse-chmm-infer.py` and the bash example `./label_model/infer-laptop.sh`.
-Please notice that you should use the argument 
+If you would like to use the trained model on new datasets, you can refer to the entry python script `./label_model/sparse-chmm-infer.py` and the bash example `./label_model/infer-laptop.sh`.
+Please notice that you should link the argument `test_path` to the new dataset and the argument `output_dir` to the folder containing your trained model.
+The process will automatically select the model trained to the latest stage.
 
-## 4. Citation
+## 5. Citation
 
 If you find our work helpful, please consider citing it as
 ```
 @inproceedings{Li-2022-Sparse-CHMM,
-author = {Li, Yinghao and Song, Le and Zhang, Chao},
-title = {Sparse Conditional Hidden Markov Model for Weakly Supervised Named Entity Recognition},
-year = {2022},
-isbn = {9781450393850},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
-url = {https://doi.org/10.1145/3534678.3539247},
-doi = {10.1145/3534678.3539247},
-booktitle = {Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery and Data Mining},
-pages = {978-988},
-numpages = {11},
-keywords = {hidden markov model, weak supervision, information extraction, named entity recognition},
-location = {Washington DC, USA},
-series = {KDD '22}
+    author = {Li, Yinghao and Song, Le and Zhang, Chao},
+    title = {Sparse Conditional Hidden Markov Model for Weakly Supervised Named Entity Recognition},
+    year = {2022},
+    isbn = {9781450393850},
+    publisher = {Association for Computing Machinery},
+    address = {New York, NY, USA},
+    url = {https://doi.org/10.1145/3534678.3539247},
+    doi = {10.1145/3534678.3539247},
+    booktitle = {Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery and Data Mining},
+    pages = {978-988},
+    numpages = {11},
+    keywords = {hidden markov model, weak supervision, information extraction, named entity recognition},
+    location = {Washington DC, USA},
+    series = {KDD '22}
 }
 ```
