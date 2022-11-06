@@ -24,7 +24,7 @@ You can find dataset statistics and other information in the `meta.json` files.
 
 Notice that the `lf_f1` section in the `meta.json` files is computed on the training set.
 
-## 3. Run
+## 3. Model Training
 
 In the `./label_model` directory, you can find several `train-<NAME OF DATASET>.sh` files.
 The model parameters presented in the paper are included as default.
@@ -34,6 +34,11 @@ The log files are stored at `./logs/sparse-chmm-train/` by default.
 
 You can also test the model with your favorite model parameters by changing the `.sh` files.
 The model parameters are defined in `./label_model/sparse_chmm/args.py`.
+
+## 4. Model Inference
+
+If you would like to use the trained the model on new datasets, you can refer to the entry python script `./label_model/sparse-chmm-infer.py` and the bash example `./label_model/infer-laptop.sh`.
+Please notice that you should use the argument 
 
 ## 4. Citation
 
