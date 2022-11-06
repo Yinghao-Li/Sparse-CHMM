@@ -7,4 +7,4 @@ tqdm==4.62.3
 transformers==4.12.3
 pytokenizations~=0.8.4
 pytextspan~=0.5.4
-seqlbtoolkit==0.0.2
+seqlbtoolkit==0.0.9

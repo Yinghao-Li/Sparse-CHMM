@@ -13,6 +13,7 @@ from torch.nn import functional as F
 
 from seqlbtoolkit.base_model.eval import Metric, get_ner_metrics
 from seqlbtoolkit.chmm.train import CHMMBaseTrainer
+from seqlbtoolkit.io import save_json
 
 from .math import get_dataset_wxor
 from .args import SparseCHMMConfig
@@ -257,6 +258,55 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
                                   file_name="dir-chmm-stage3",
                                   add_wxor_lut=True,
                                   apply_ratio_decay=True)
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        return self
+    
+    def inference(self):
+        """
+        Only the model inference stages, needs pre-trained model.
+        """
+        logger.info("---Stage 3---")
+        loaded = False
+
+        try:
+            logger.info("loading stage-3 model")
+            self.load(model_name='chmm-stage3',
+                      load_wxor=True)
+            loaded = True
+        except Exception as err:
+            logger.exception(f"Failed to load stage-3 model: {err}")
+
+        if not loaded:
+            try:
+                logger.info("loading stage-2 model")
+                self.load(model_name='chmm-stage2',
+                          load_wxor=True)
+                loaded = True
+            except Exception as err:
+                logger.exception(f"Failed to load stage-2 model: {err}")
+
+        if not loaded:
+            try:
+                logger.info("loading stage-1 model")
+                self.load(model_name='chmm-stage1')
+            except Exception as err:
+                logger.exception(f"Failed to load stage-1 model: {err}")
+                logger.error("Exit due to excepting in model loading.")
+                raise err
+
+        pred_lbs, _ = self.predict(
+            dataset=self._test_dataset,
+            add_wxor_lut=loaded,
+            apply_ratio_decay=loaded
+        )
+
+        save_json(
+            {'pred_lbs': pred_lbs},
+            os.path.join(os.path.join(self.config.output_dir, 'preds.json'))
+        )
 
         gc.collect()
         torch.cuda.empty_cache()
