@@ -1,6 +1,3 @@
-import sys
-sys.path.append('../..')
-
 import os
 import gc
 import logging
@@ -11,36 +8,41 @@ from typing import Optional
 import torch
 from torch.nn import functional as F
 
-from seqlbtoolkit.base_model.eval import Metric, get_ner_metrics
-from seqlbtoolkit.chmm.train import CHMMBaseTrainer
+from seqlbtoolkit.training.eval import Metric, get_ner_metrics
+from seqlbtoolkit.training.train import BaseTrainer
 from seqlbtoolkit.io import save_json
 
 from .math import get_dataset_wxor
-from .args import SparseCHMMConfig
 from .model import SparseCHMM, SparseCHMMMetric
-from .dataset import CHMMDataset
+from .dataset import Dataset
+from .collate import collate_fn
 from .macro import *
 
 logger = logging.getLogger(__name__)
 
 
-class SparseCHMMTrainer(CHMMBaseTrainer):
+OUT_RECALL = 0.9
+OUT_PRECISION = 0.8
+
+
+class Trainer(BaseTrainer):
     def __init__(self,
-                 config: SparseCHMMConfig,
-                 collate_fn=None,
+                 config,
                  training_dataset=None,
                  valid_dataset=None,
-                 test_dataset=None,
-                 pretrain_optimizer=None,
-                 optimizer=None):
+                 test_dataset=None):
 
         super().__init__(
-            config, collate_fn, training_dataset, valid_dataset, test_dataset, pretrain_optimizer, optimizer
+            config=config,
+            training_dataset=training_dataset,
+            valid_dataset=valid_dataset,
+            test_dataset=test_dataset,
+            collate_fn=collate_fn
         )
-
-    @property
-    def config(self) -> SparseCHMMConfig:
-        return self._config
+        self._pretrain_optimizer = None
+        self._init_state_prior = None
+        self._init_trans_mat = None
+        self._init_emiss_mat = None
 
     @property
     def neural_module(self):
@@ -48,9 +50,16 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
 
     def initialize_trainer(self):
         """
-        Initialize necessary components for training, returns self
+        Initialize necessary components for training
+        Note: Better not change the order
+
+        Returns
+        -------
+        the initialized trainer
         """
-        CHMMBaseTrainer.initialize_trainer(self)
+        self.initialize_matrices()
+        self.initialize_model()
+        self.initialize_optimizers()
         return self
 
     def initialize_model(self):
@@ -60,9 +69,69 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
         )
         return self
 
+    def initialize_matrices(self):
+        """
+        Initialize <HMM> transition and emission matrices
+
+        Returns
+        -------
+        self
+        """
+        assert self._training_dataset and self._valid_dataset
+        # inject prior knowledge about transition and emission
+        self._init_state_prior = torch.zeros(self._config.d_hidden, device=self._config.device) + 1e-2
+        self._init_state_prior[0] += 1 - self._init_state_prior.sum()
+
+        intg_obs = list(map(np.array, self._training_dataset.obs + self._valid_dataset.obs))
+
+        # construct/load initial transition matrix
+        dataset_dir = os.path.split(self._config.train_path)[0]
+        transmat_path = os.path.join(dataset_dir, "init_transmat.pt")
+        if getattr(self._config, "load_init_mat", False):
+            if os.path.isfile(transmat_path):
+                logger.info("Loading initial transition matrix from disk")
+                self._init_trans_mat = torch.load(transmat_path)
+
+                # if the loaded transmat does not have the proper shape, re-calculate it.
+                s0_transmat, s1_transmat = self._init_trans_mat.shape
+                if not (s0_transmat == s1_transmat == self.config.d_obs):
+                    self._init_trans_mat = None
+
+        if self._init_trans_mat is None:
+            self._init_trans_mat = torch.tensor(initialise_transmat(
+                observations=intg_obs, label_set=self._config.bio_label_types
+            )[0], dtype=torch.float)
+
+            if getattr(self._config, "save_init_mat", False):
+                logger.info("Saving initial transition matrix")
+                torch.save(self._init_trans_mat, transmat_path)
+
+        # construct/load initial emission matrix
+        emissmat_path = os.path.join(dataset_dir, "init_emissmat.pt")
+        if getattr(self._config, "load_init_mat", False):
+            if os.path.isfile(emissmat_path):
+                logger.info("Loading initial emission matrix from disk")
+                self._init_emiss_mat = torch.load(emissmat_path)
+
+                # if the loaded emissmat does not have the proper shape, re-calculate it.
+                s0_emissmat, s1_emissmat, s2_emissmat = self._init_emiss_mat.shape
+                if not (s0_emissmat == self.config.n_src) and (s1_emissmat == s2_emissmat == self.config.d_obs):
+                    self._init_emiss_mat = None
+
+        if self._init_emiss_mat is None:
+            self._init_emiss_mat = torch.tensor(initialise_emissions(
+                observations=intg_obs, label_set=self._config.bio_label_types,
+                sources=self._config.sources, src_priors=self._config.src_priors
+            )[0], dtype=torch.float)
+
+            if getattr(self._config, "save_init_mat", False):
+                logger.info("Saving initial emission matrix")
+                torch.save(self._init_emiss_mat, emissmat_path)
+
+        return self
+
     def pretrain_step(self,
                       data_loader,
-                      optimizer,
                       trans_: Optional[torch.Tensor] = None,
                       emiss_: Optional[torch.Tensor] = None,
                       add_wxor_lut: Optional[bool] = False,
@@ -96,7 +165,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
             batch_size = len(obs_batch)
             num_samples += batch_size
 
-            optimizer.zero_grad()
+            self._pretrain_optimizer.zero_grad()
             nn_trans, nn_emiss, _ = self.neural_module(
                 embs=emb_batch, add_wxor_lut=add_wxor_lut, apply_ratio_decay=apply_ratio_decay
             )
@@ -126,7 +195,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
 
             loss = l1 + l2
             loss.backward()
-            optimizer.step()
+            self._pretrain_optimizer.step()
 
             train_loss += loss.item() * batch_size
         train_loss /= num_samples
@@ -134,11 +203,11 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
 
     def training_step(self,
                       data_loader,
-                      optimizer,
                       src_usg_ids: Optional[list[int]] = None,
                       add_wxor_lut: Optional[bool] = False,
                       apply_ratio_decay: Optional[bool] = False,
-                      track_conc_params: Optional[bool] = True):
+                      track_conc_params: Optional[bool] = True,
+                      **kwargs):
 
         self._model.train()
 
@@ -166,7 +235,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
             num_samples += batch_size
 
             # training step
-            optimizer.zero_grad()
+            self._optimizer.zero_grad()
             log_probs, _ = self._model(
                 emb=emb_batch,
                 obs=obs_batch,
@@ -183,7 +252,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
                 loss = loss + torch.sum((l2l_emiss[:, :, ::2] - l2l_emiss[:, :, 1::2]) ** 2)
 
             loss.backward()
-            optimizer.step()
+            self._optimizer.step()
 
             # track loss
             train_loss += loss.item() * batch_size
@@ -330,7 +399,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
             logger.info("Pre-training neural module...")
             for epoch_i in range(self.config.num_lm_nn_pretrain_epochs):
                 train_loss = self.pretrain_step(
-                    training_dataloader, self._pretrain_optimizer, self._init_trans_mat, self._init_emiss_mat
+                    training_dataloader, self._init_trans_mat, self._init_emiss_mat
                 )
                 logger.info(f"Epoch: {epoch_i}, Loss: {train_loss}")
             logger.info("Neural module pretrained!")
@@ -347,7 +416,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
             logger.info("------")
             logger.info(f"Epoch {epoch_i + 1} of {self.config.num_lm_train_epochs}")
 
-            train_loss = self.training_step(training_dataloader, self._optimizer)
+            train_loss = self.training_step(training_dataloader)
             logger.info(f"Training loss: {train_loss:.4f}")
 
             self._model.pop_inter_results()  # remove training inter results
@@ -427,7 +496,6 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
             for epoch_i in range(self.config.num_lm_nn_pretrain_epochs):
                 train_loss = self.pretrain_step(
                     data_loader=training_dataloader,
-                    optimizer=self._pretrain_optimizer,
                     emiss_=init_emiss_mat,
                     add_wxor_lut=True,
                     apply_ratio_decay=False
@@ -456,7 +524,6 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
 
             train_loss = self.training_step(
                 data_loader=training_dataloader,
-                optimizer=self._optimizer,
                 add_wxor_lut=True,
                 apply_ratio_decay=True
             )
@@ -526,7 +593,6 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
             for epoch_i in range(self.config.num_lm_nn_pretrain_epochs):
                 train_loss = self.pretrain_step(
                     data_loader=training_dataloader,
-                    optimizer=self._pretrain_optimizer,
                     trans_=self._init_trans_mat,
                     add_wxor_lut=True,
                     apply_ratio_decay=False
@@ -558,7 +624,6 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
 
             train_loss = self.training_step(
                 data_loader=training_dataloader,
-                optimizer=self._optimizer,
                 src_usg_ids=src_usg_ids,
                 add_wxor_lut=True,
                 apply_ratio_decay=True,
@@ -625,7 +690,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
         return test_metrics
 
     def evaluate(self,
-                 dataset: CHMMDataset,
+                 dataset: Dataset,
                  add_wxor_lut: Optional[bool] = False,
                  apply_ratio_decay: Optional[bool] = False) -> Metric:
 
@@ -666,7 +731,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
         return metric_values
 
     def predict(self,
-                dataset: CHMMDataset,
+                dataset: Dataset,
                 add_wxor_lut: Optional[bool] = False,
                 apply_ratio_decay: Optional[bool] = False):
 
@@ -706,7 +771,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
 
         return pred_lbs, pred_probs
 
-    def get_trans_and_emiss(self, dataset: CHMMDataset) -> tuple[list[torch.Tensor], torch.Tensor]:
+    def get_trans_and_emiss(self, dataset: Dataset) -> tuple[list[torch.Tensor], torch.Tensor]:
         data_loader = self.get_dataloader(dataset)
         self.neural_module.eval()
 
@@ -728,7 +793,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
                     emissions = torch.cat([emissions, emiss_probs.detach().cpu()], 0)
         return transitions, emissions
 
-    def get_src_relibs(self, dataset: CHMMDataset):
+    def get_src_relibs(self, dataset: Dataset):
         """
         Calculate the reliability scores of each label/entity of each source
         """
@@ -749,7 +814,7 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
                     src_relibs = torch.cat([src_relibs, conc_e2e.detach()], 0)
         return src_relibs
 
-    def get_weighted_xor_lut(self, dataset: CHMMDataset):
+    def get_weighted_xor_lut(self, dataset: Dataset):
         """
         Get the weighted xor lookup table using source reliability scores predicted from the nn module
         and the labels observed by the sources
@@ -780,6 +845,10 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
         wxor[:, ids_0, ids_1] *= 0.5
 
         return wxor
+
+    def initialize_optimizers(self, optimizer=None, pretrain_optimizer=None):
+        self._optimizer = self.get_optimizer() if optimizer is None else optimizer
+        self._pretrain_optimizer = self.get_pretrain_optimizer() if pretrain_optimizer is None else pretrain_optimizer
 
     def get_pretrain_optimizer(self):
         pretrain_optimizer = torch.optim.Adam(
@@ -871,9 +940,18 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
              output_dir: Optional[str] = None,
              save_optimizer: Optional[bool] = False,
              model_name: Optional[str] = 'chmm',
-             optimizer_name: Optional[str] = 'chmm-optimizer',
-             pretrain_optimizer_name: Optional[str] = 'chmm-pretrain-optimizer'):
-        super().save(output_dir, save_optimizer, model_name, optimizer_name, pretrain_optimizer_name)
+             optimizer_name: Optional[str] = 'optimizer',
+             pretrain_optimizer_name: Optional[str] = 'pretrain-optimizer',
+             **kwargs):
+        super().save(
+            output_dir=output_dir,
+            save_optimizer=save_optimizer,
+            model_name=model_name,
+            optimizer_name=optimizer_name)
+
+        if save_optimizer:
+            torch.save(self._pretrain_optimizer.state_dict(),
+                       os.path.join(output_dir, f"{pretrain_optimizer_name}.bin"))
 
         output_dir = output_dir if output_dir is not None else self.config.output_dir
         if self.neural_module.wxor_lut is not None:
@@ -886,9 +964,23 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
              load_optimizer: Optional[bool] = False,
              load_wxor: Optional[bool] = False,
              model_name: Optional[str] = 'chmm',
-             optimizer_name: Optional[str] = 'chmm-optimizer',
-             pretrain_optimizer_name: Optional[str] = 'chmm-pretrain-optimizer'):
-        super().load(input_dir, load_optimizer, model_name, optimizer_name, pretrain_optimizer_name)
+             optimizer_name: Optional[str] = 'optimizer',
+             pretrain_optimizer_name: Optional[str] = 'pretrain-optimizer'):
+
+        super().load(
+            input_dir=input_dir,
+            load_optimizer=load_optimizer,
+            model_name=model_name,
+            optimizer_name=optimizer_name)
+
+        if load_optimizer:
+            logger.info("Loading pre-train optimizer")
+            if os.path.isfile(os.path.join(input_dir, f"{pretrain_optimizer_name}.bin")):
+                self._pretrain_optimizer.load_state_dict(
+                    torch.load(os.path.join(input_dir, f"{pretrain_optimizer_name}.bin"))
+                )
+            else:
+                logger.warning("Pretrain optimizer file does not exist!")
 
         input_dir = input_dir if input_dir is not None else self.config.output_dir
         if load_wxor:
@@ -959,3 +1051,161 @@ class SparseCHMMTrainer(CHMMBaseTrainer):
             inter_result_file = os.path.join(output_dir, f'{file_name}-inter.pt')
             torch.save(valid_results.__dict__, inter_result_file)
         return None
+
+    @staticmethod
+    def write_result(file_path: str,
+                     valid_results: Optional[Metric] = None,
+                     final_valid_metrics: Optional[Metric] = None,
+                     test_metrics: Optional[Metric] = None) -> None:
+        """
+        Support functions for saving training results
+
+        Parameters
+        ----------
+        file_path: where to save results
+        valid_results: validation results during the training process
+        final_valid_metrics: validation results of the trained model
+        test_metrics
+
+        Returns
+        -------
+
+        """
+        with open(file_path, 'w') as f:
+            if valid_results is not None:
+                for i in range(len(valid_results)):
+                    f.write(f"[Epoch {i + 1}]\n")
+                    for k in ['precision', 'recall', 'f1']:
+                        f.write(f"  {k}: {valid_results[k][i]:.4f}")
+                    f.write("\n")
+            if final_valid_metrics is not None:
+                f.write(f"[Best Validation]\n")
+                for k in ['precision', 'recall', 'f1']:
+                    f.write(f"  {k}: {final_valid_metrics[k]:.4f}")
+                f.write("\n")
+            if test_metrics is not None:
+                f.write(f"[Test]\n")
+                for k in ['precision', 'recall', 'f1']:
+                    f.write(f"  {k}: {test_metrics[k]:.4f}")
+                f.write("\n")
+        return None
+
+
+def initialise_transmat(observations,
+                        label_set,
+                        src_idx=None):
+    """
+    initialize transition matrix
+    :param src_idx: the index of the source of which the transition statistics is computed.
+                    If None, use all sources
+    :param label_set: a set of all possible label_set
+    :param observations: n_instances X seq_len X n_src X d_obs
+    :return: initial transition matrix and transition counts
+    """
+
+    logger.info("Constructing transition matrix prior...")
+    n_src = observations[0].shape[1]
+    trans_counts = np.zeros((len(label_set), len(label_set)))
+
+    if src_idx is not None:
+        for obs in observations:
+            for k in range(0, len(obs) - 1):
+                trans_counts[obs[k, src_idx].argmax(), obs[k + 1, src_idx].argmax()] += 1
+    else:
+        for obs in observations:
+            for k in range(0, len(obs) - 1):
+                for z in range(n_src):
+                    trans_counts[obs[k, z].argmax(), obs[k + 1, z].argmax()] += 1
+
+    # update transition matrix with prior knowledge
+    for i, label in enumerate(label_set):
+        if label.startswith("B-") or label.startswith("I-"):
+            trans_counts[i, label_set.index("I-" + label[2:])] += 1
+        elif i == 0 or label.startswith("I-"):
+            for j, label2 in enumerate(label_set):
+                if j == 0 or label2.startswith("B-"):
+                    trans_counts[i, j] += 1
+
+    transmat_prior = trans_counts + 1
+    # initialize transition matrix with dirichlet distribution
+    transmat_ = np.vstack([np.random.dirichlet(trans_counts2 + 1E-10)
+                           for trans_counts2 in trans_counts])
+    return transmat_, transmat_prior
+
+
+def initialise_emissions(observations,
+                         label_set,
+                         sources,
+                         src_priors,
+                         strength=1000):
+    """
+    initialize emission matrices
+    :param sources: source names
+    :param src_priors: source priors
+    :param label_set: a set of all possible label_set
+    :param observations: n_instances X seq_len X n_src X d_obs
+    :param strength: Don't know what this is for
+    :return: initial emission matrices and emission counts?
+    """
+
+    logger.info("Constructing emission probabilities...")
+
+    obs_counts = np.zeros((len(sources), len(label_set)), dtype=np.float64)
+    # extract the total number of observations for each prior
+    for obs in observations:
+        obs_counts += obs.sum(axis=0)
+    for source_index, source in enumerate(sources):
+        # increase p(O)
+        obs_counts[source_index, 0] += 1
+        # increase the "reasonable" observations
+        for pos_index, pos_label in enumerate(label_set[1:]):
+            if pos_label[2:] in src_priors[source]:
+                obs_counts[source_index, pos_index] += 1
+    # construct probability distribution from counts
+    obs_probs = obs_counts / (obs_counts.sum(axis=1, keepdims=True) + 1E-3)
+
+    # initialize emission matrix
+    matrix = np.zeros((len(sources), len(label_set), len(label_set)))
+
+    for source_index, source in enumerate(sources):
+        for pos_index, pos_label in enumerate(label_set):
+
+            # Simple case: set P(O=x|Y=x) to be the recall
+            recall = 0
+            if pos_index == 0:
+                recall = OUT_RECALL
+            elif pos_label[2:] in src_priors[source]:
+                _, recall = src_priors[source][pos_label[2:]]
+            matrix[source_index, pos_index, pos_index] = recall
+
+            for pos_index2, pos_label2 in enumerate(label_set):
+                if pos_index2 == pos_index:
+                    continue
+                elif pos_index2 == 0:
+                    precision = OUT_PRECISION
+                elif pos_label2[2:] in src_priors[source]:
+                    precision, _ = src_priors[source][pos_label2[2:]]
+                else:
+                    precision = 1.0
+
+                # Otherwise, we set the probability to be inversely proportional to the precision
+                # and the (unconditional) probability of the observation
+                error_prob = (1 - recall) * (1 - precision) * (0.001 + obs_probs[source_index, pos_index2])
+
+                # We increase the probability for boundary errors (i.e. I-ORG -> B-ORG)
+                if pos_index > 0 and pos_index2 > 0 and pos_label[2:] == pos_label2[2:]:
+                    error_prob *= 5
+
+                # We increase the probability for errors with same boundary (i.e. I-ORG -> I-GPE)
+                if pos_index > 0 and pos_index2 > 0 and pos_label[0] == pos_label2[0]:
+                    error_prob *= 2
+
+                matrix[source_index, pos_index, pos_index2] = error_prob
+
+            error_indices = [i for i in range(len(label_set)) if i != pos_index]
+            error_sum = matrix[source_index, pos_index, error_indices].sum()
+            matrix[source_index, pos_index, error_indices] /= (error_sum / (1 - recall) + 1E-5)
+
+    emission_priors = matrix * strength
+    emission_probs = matrix
+    return emission_probs, emission_priors

@@ -4,9 +4,9 @@
 set -e
 
 BERT_MODEL="allenai/scibert_scivocab_uncased"
-TRAIN_PATH="../data_constr/BC5CDR/train.json"
-VALID_PATH="../data_constr/BC5CDR/valid.json"
-TEST_PATH="../data_constr/BC5CDR/test.json"
+TRAIN_PATH="./data/BC5CDR/train.json"
+VALID_PATH="./data/BC5CDR/valid.json"
+TEST_PATH="./data/BC5CDR/test.json"
 
 LM_BATCH_SIZE=128
 
@@ -35,7 +35,7 @@ do
 
 OUTPUT_DIR="./output/CDR/${SEED}/"
 
-CUDA_VISIBLE_DEVICES=$1 python sparse-chmm-train.py \
+PYTHONPATH="." CUDA_VISIBLE_DEVICES=$1 python ./run/train.py \
     --bert_model_name_or_path $BERT_MODEL \
     --train_path $TRAIN_PATH \
     --valid_path $VALID_PATH \
@@ -49,7 +49,7 @@ CUDA_VISIBLE_DEVICES=$1 python sparse-chmm-train.py \
     --nn_lr $NN_LR \
     --s2_lr_decay $S2_LR_DECAY \
     --s3_lr_decay $S3_LR_DECAY \
-    --lm_batch_size $LM_BATCH_SIZE \
+    --batch_size $LM_BATCH_SIZE \
     --num_lm_nn_pretrain_epochs $NUM_LM_NN_PRETRAIN_EPOCHS \
     --num_lm_train_epochs $NUM_LM_TRAIN_EPOCHS \
     --num_lm_valid_tolerance $NUM_LM_VALID_TOLERANCE \

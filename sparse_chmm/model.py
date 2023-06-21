@@ -1,7 +1,3 @@
-import sys
-
-sys.path.append('../..')
-
 import logging
 import numpy as np
 from typing import Optional
@@ -11,7 +7,7 @@ import torch.nn as nn
 from torch.distributions.dirichlet import Dirichlet
 
 from seqlbtoolkit.data import label_to_span
-from seqlbtoolkit.base_model.eval import Metric
+from seqlbtoolkit.training.eval import Metric
 
 from .math import (
     log_matmul,
@@ -23,7 +19,7 @@ from .math import (
     entity_emiss_o,
     entity_emiss_nondiag
 )
-from .args import SparseCHMMConfig
+from .args import Config
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +34,7 @@ class SparseCHMMMetric(Metric):
 
 
 class TransitionModule(nn.Module):
-    def __init__(self, config: SparseCHMMConfig):
+    def __init__(self, config: Config):
         super(TransitionModule, self).__init__()
         self._d_hidden = config.d_hidden
 
@@ -66,7 +62,7 @@ class TransitionModule(nn.Module):
 
 
 class DirParamBaseModule(nn.Module):
-    def __init__(self, config: SparseCHMMConfig):
+    def __init__(self, config: Config):
         super(DirParamBaseModule, self).__init__()
 
         self._n_src = config.n_src
@@ -161,7 +157,7 @@ class DirParamBaseModule(nn.Module):
 
 
 class DirParamExpanModule(nn.Module):
-    def __init__(self, config: SparseCHMMConfig):
+    def __init__(self, config: Config):
         super(DirParamExpanModule, self).__init__()
 
         self._n_src = config.n_src
@@ -194,7 +190,7 @@ class DirParamExpanModule(nn.Module):
 
 class NeuralModule(nn.Module):
     def __init__(self,
-                 config: SparseCHMMConfig):
+                 config: Config):
         super(NeuralModule, self).__init__()
 
         self.transition_module = TransitionModule(config)
@@ -253,7 +249,7 @@ class NeuralModule(nn.Module):
 
 class SparseCHMM(nn.Module):
 
-    def __init__(self, config: SparseCHMMConfig, state_prior=None):
+    def __init__(self, config: Config, state_prior=None):
         super(SparseCHMM, self).__init__()
 
         self._n_src = config.n_src

@@ -1,9 +1,6 @@
 # coding=utf-8
 """ Train the conditional hidden Markov model """
 
-import sys
-sys.path.append('..')
-
 import logging
 import os
 import sys
@@ -17,19 +14,18 @@ from transformers import (
 )
 
 from seqlbtoolkit.io import set_logging, logging_args
-from seqlbtoolkit.chmm.dataset import collate_fn
 
-from label_model.sparse_chmm.train import SparseCHMMTrainer
-from label_model.sparse_chmm.args import SparseCHMMArguments, SparseCHMMConfig
-from label_model.sparse_chmm.dataset import CHMMDataset
-from label_model.sparse_chmm.macro import *
+from sparse_chmm.train import Trainer
+from sparse_chmm.args import Arguments, Config
+from sparse_chmm.dataset import Dataset
+from sparse_chmm.macro import *
 
 logger = logging.getLogger(__name__)
 
 
-def chmm_train(args: SparseCHMMArguments):
+def chmm_train(args: Arguments):
     set_seed(args.seed)
-    config = SparseCHMMConfig().from_args(args)
+    config = Config().from_args(args)
 
     # create output dir if it does not exist
     os.makedirs(args.output_dir, exist_ok=True)
@@ -40,17 +36,17 @@ def chmm_train(args: SparseCHMMArguments):
         logger.info('Loading pre-processed datasets...')
         file_dir = os.path.split(args.train_path)[0]
         try:
-            training_dataset = CHMMDataset().load(
+            training_dataset = Dataset().load(
                 file_dir=file_dir,
                 dataset_type='train',
                 config=config
             )
-            valid_dataset = CHMMDataset().load(
+            valid_dataset = Dataset().load(
                 file_dir=file_dir,
                 dataset_type='valid',
                 config=config
             )
-            test_dataset = CHMMDataset().load(
+            test_dataset = Dataset().load(
                 file_dir=file_dir,
                 dataset_type='test',
                 config=config
@@ -62,19 +58,19 @@ def chmm_train(args: SparseCHMMArguments):
     if training_dataset is None:
         if args.train_path:
             logger.info('Loading training dataset...')
-            training_dataset = CHMMDataset().load_file(
+            training_dataset = Dataset().load_file(
                 file_path=args.train_path,
                 config=config
             )
         if args.valid_path:
             logger.info('Loading validation dataset...')
-            valid_dataset = CHMMDataset().load_file(
+            valid_dataset = Dataset().load_file(
                 file_path=args.valid_path,
                 config=config
             )
         if args.test_path:
             logger.info('Loading test dataset...')
-            test_dataset = CHMMDataset().load_file(
+            test_dataset = Dataset().load_file(
                 file_path=args.test_path,
                 config=config
             )
@@ -92,9 +88,8 @@ def chmm_train(args: SparseCHMMArguments):
         valid_dataset.remove_src(MV_LF_NAME, config)
         test_dataset.remove_src(MV_LF_NAME, config)
 
-    chmm_trainer = SparseCHMMTrainer(
+    chmm_trainer = Trainer(
         config=config,
-        collate_fn=collate_fn,
         training_dataset=training_dataset,
         valid_dataset=valid_dataset,
         test_dataset=test_dataset,
@@ -118,7 +113,7 @@ if __name__ == '__main__':
         _current_file_name = _current_file_name[:-3]
 
     # --- set up arguments ---
-    parser = HfArgumentParser(SparseCHMMArguments)
+    parser = HfArgumentParser(Arguments)
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -129,10 +124,10 @@ if __name__ == '__main__':
         chmm_args, = parser.parse_args_into_dataclasses()
 
     # Setup logging
-    if chmm_args.log_dir is None:
-        chmm_args.log_dir = os.path.join('logs', f'{_current_file_name}', f'{_time}.log')
+    if chmm_args.log_path is None:
+        chmm_args.log_path = os.path.join('logs', f'{_current_file_name}', f'{_time}.log')
 
-    set_logging(log_dir=chmm_args.log_dir)
+    set_logging(log_dir=chmm_args.log_path)
     logging_args(chmm_args)
 
     try:

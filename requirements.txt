@@ -1,10 +1,7 @@
-nltk==3.5
-numpy==1.21.2
-regex==2021.8.3
+numpy==1.24.3
+regex==2023.5.5
 seqeval==1.2.2
-torch==1.10.0
-tqdm==4.62.3
-transformers==4.12.3
-pytokenizations~=0.8.4
-pytextspan~=0.5.4
-seqlbtoolkit==0.0.9
+SeqLbToolkit==0.3.6
+torch==1.13.1
+tqdm==4.65.0
+transformers==4.30.2

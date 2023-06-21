@@ -1,9 +1,6 @@
 # coding=utf-8
 """ Train the conditional hidden Markov model """
 
-import sys
-sys.path.append('..')
-
 import logging
 import os
 import sys
@@ -17,37 +14,35 @@ from transformers import (
 )
 
 from seqlbtoolkit.io import set_logging, logging_args
-from seqlbtoolkit.chmm.dataset import collate_fn
 
-from label_model.sparse_chmm.train import SparseCHMMTrainer
-from label_model.sparse_chmm.args import SparseCHMMArguments, SparseCHMMConfig
-from label_model.sparse_chmm.dataset import CHMMDataset
-from label_model.sparse_chmm.macro import *
+from sparse_chmm.train import Trainer
+from sparse_chmm.args import Arguments, Config
+from sparse_chmm.dataset import Dataset
 
 logger = logging.getLogger(__name__)
 
 
-def chmm_infer(args: SparseCHMMArguments):
+def chmm_infer(args: Arguments):
     set_seed(args.seed)
-    config = SparseCHMMConfig().from_args(args)
+    config = Config().from_args(args)
 
     # load dataset
+    test_dataset = None
     if args.load_preprocessed_dataset:
         logger.info('Loading pre-processed datasets...')
         try:
-            test_dataset = CHMMDataset().load(
+            test_dataset = Dataset().load(
                 file_dir=os.path.split(args.test_path)[0],
                 dataset_type='test',
                 config=config
             )
         except Exception as err:
             logger.exception(f"Encountered error {err} while loading the pre-processed datasets")
-            test_dataset = None
 
     if test_dataset is None:
         if args.test_path:
             logger.info('Loading test dataset...')
-            test_dataset = CHMMDataset().load_file(
+            test_dataset = Dataset().load_file(
                 file_path=args.test_path,
                 config=config
             )
@@ -58,9 +53,8 @@ def chmm_infer(args: SparseCHMMArguments):
 
             test_dataset.save(output_dir, 'test', config)
 
-    chmm_trainer = SparseCHMMTrainer(
+    chmm_trainer = Trainer(
         config=config,
-        collate_fn=collate_fn,
         test_dataset=test_dataset,
     ).initialize_model()
 
@@ -82,7 +76,7 @@ if __name__ == '__main__':
         _current_file_name = _current_file_name[:-3]
 
     # --- set up arguments ---
-    parser = HfArgumentParser(SparseCHMMArguments)
+    parser = HfArgumentParser(Arguments)
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -93,10 +87,10 @@ if __name__ == '__main__':
         chmm_args, = parser.parse_args_into_dataclasses()
 
     # Setup logging
-    if chmm_args.log_dir is None:
-        chmm_args.log_dir = os.path.join('logs', f'{_current_file_name}', f'{_time}.log')
+    if chmm_args.log_path is None:
+        chmm_args.log_path = os.path.join('logs', f'{_current_file_name}', f'{_time}.log')
 
-    set_logging(log_dir=chmm_args.log_dir)
+    set_logging(log_dir=chmm_args.log_path)
     logging_args(chmm_args)
 
     try:

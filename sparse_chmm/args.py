@@ -2,14 +2,14 @@ import torch
 import logging
 from typing import Optional
 from dataclasses import dataclass, field
-from transformers.file_utils import cached_property, torch_required
-from seqlbtoolkit.chmm.config import CHMMBaseConfig
+from transformers.file_utils import cached_property
+from seqlbtoolkit.training.config import NERConfig
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class SparseCHMMArguments:
+class Arguments:
     """
     Arguments regarding the training of Neural hidden Markov Model
     """
@@ -63,7 +63,7 @@ class SparseCHMMArguments:
     save_init_mat: Optional[bool] = field(
         default=False, metadata={'help': 'Whether to save initial transition and emission matrix from disk'}
     )
-    log_dir: Optional[str] = field(
+    log_path: Optional[str] = field(
         default=None,
         metadata={"help": "the directory of the log file. Set to '' to disable logging"}
     )
@@ -81,7 +81,7 @@ class SparseCHMMArguments:
     s3_lr_decay: Optional[float] = field(
         default=1, metadata={'help': 'Stage 3 learning rate decay rate'}
     )
-    lm_batch_size: Optional[int] = field(
+    batch_size: Optional[int] = field(
         default=128, metadata={'help': 'denoising model training batch size'}
     )
     num_lm_train_epochs: Optional[int] = field(
@@ -185,9 +185,8 @@ class SparseCHMMArguments:
 
     # The following three functions are copied from transformers.training_args
     @cached_property
-    @torch_required
     def _setup_devices(self) -> "torch.device":
-        if self.no_cuda:
+        if self.no_cuda or not torch.cuda.is_available():
             device = torch.device("cpu")
             self._n_gpu = 0
         else:
@@ -197,7 +196,6 @@ class SparseCHMMArguments:
         return device
 
     @property
-    @torch_required
     def device(self) -> "torch.device":
         """
         The device used by this process.
@@ -205,7 +203,6 @@ class SparseCHMMArguments:
         return self._setup_devices
 
     @property
-    @torch_required
     def n_gpu(self) -> "int":
         """
         The number of GPUs used by this process.
@@ -220,5 +217,43 @@ class SparseCHMMArguments:
 
 
 @dataclass
-class SparseCHMMConfig(SparseCHMMArguments, CHMMBaseConfig):
-    pass
+class Config(Arguments, NERConfig):
+    """
+    Conditional HMM training configuration
+    """
+    sources: Optional[list[str]] = None
+    src_priors: Optional[dict] = None
+    d_emb: Optional[int] = None
+
+    @property
+    def d_hidden(self) -> int:
+        """
+        Returns the HMM hidden dimension, AKA, the number of bio labels
+        """
+        return self.n_lbs
+
+    @property
+    def d_obs(self) -> int:
+        """
+        Returns
+        -------
+        The observation dimension, equals to the number of bio labels
+        """
+        return self.n_lbs
+
+    @property
+    def n_src(self) -> int:
+        """
+        Returns
+        -------
+        The number of sources
+        """
+        return len(self.sources) if self.sources is not None else 0
+
+    def save(self, file_dir: str, file_name: Optional[str] = 'chmm-config'):
+        super().save(file_dir, file_name)
+        return self
+
+    def load(self, file_dir: str, file_name: Optional[str] = 'chmm-config'):
+        super().load(file_dir, file_name)
+        return self

@@ -37,7 +37,7 @@ def parse_args():
 
 
 def main(args):
-    set_logging(args.log_dir)
+    set_logging(args.log_path)
     logger.setLevel(logging.INFO)
     logger.info(f"Parameters: {args}")
 

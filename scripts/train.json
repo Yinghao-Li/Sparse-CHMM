@@ -1,0 +1,15 @@
+{
+  "bert_model_name_or_path": "distilbert-base-uncased",
+  "train_path": "./data/LaptopReview/train.json",
+  "valid_path": "./data/LaptopReview/valid.json",
+  "test_path": "./data/LaptopReview/test.json",
+  "reliability_level": "label",
+  "output_dir": "./output/",
+  "save_dataset": true,
+  "save_dataset_to_data_dir": true,
+  "load_preprocessed_dataset": true,
+  "freeze_s2_base_emiss": true,
+  "include_s2": true,
+  "include_s3": true,
+  "add_majority_voting": true
+}
